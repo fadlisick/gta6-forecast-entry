@@ -28,6 +28,12 @@ practice case whose true answers could be read back from the public source):
 - on an ELDEN-RING-shaped huge launch at hour-1 = 800k: 0.128 vs 0.211.
 A one-point winsorisation of the fit was tried and dropped: no gain
 (leave-one-out 0.375 vs 0.376, Wolverine slightly worse).
+The hinge is never extrapolated beyond what any comparable launch did: each
+hour's median ratio is capped at that hour's largest observed log ratio plus
+a 0.5 margin, so the forecast stays inside the data (a 10-viewer first hour
+no longer predicts a 38,000x explosion; the largest observed is 1,874x).
+Practice outputs are byte-identical and leave-one-out moves 0.3759 -> 0.3761
+overall, big tercile unchanged at 0.2170.
 The final is one unseen launch day, so these are a gate, not a promise: the
 model's edge is the conditional shape, and it degrades gracefully (wide
 spreads) if GTA VI's curve lands outside the comparable range.
@@ -217,9 +223,25 @@ def forecast_case(case):
         near = [medians[h] for h in (hour - 1, hour, hour + 1) if h in medians]
         smoothed[hour] = sum(near) / len(near)
 
+    # Bound the median ratio by what any comparable launch ever did. The
+    # hinge is linear in log size, so an hour-1 print far below every
+    # comparable would otherwise explode to absurd ratios (38,000x at
+    # 10 viewers; the largest observed is 1,874x). The cap is each hour's
+    # largest observed log ratio plus a 0.5 margin; it binds only on the
+    # single most extreme leave-one-out day (overall 0.3759 -> 0.3761,
+    # big tercile unchanged) and otherwise only bounds out-of-range
+    # extrapolation.
+    capped = {}
+    for hour in hours:
+        idx = hour - 1
+        observed = [math.log(values[idx] / values[0]) for _, values in curves
+                    if idx < len(values) and values[idx] is not None]
+        cap = (max(observed) + 0.5) if observed else None
+        capped[hour] = smoothed[hour] if cap is None else min(smoothed[hour], cap)
+
     out_hours = []
     for hour in hours:
-        mu = smoothed[hour]
+        mu = capped[hour]
         sd = spreads[hour]
         quantiles = []
         prev = 0.0
